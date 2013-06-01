@@ -1,7 +1,6 @@
 var EventEmitter = require('events').EventEmitter
         , util = require('util')
         , assert = require('assert')
-        , ursa = require('ursa')
         , crypto = require('crypto')
         , bufferEqual = require('buffer-equal')
         , superagent = require('superagent')
@@ -14,7 +13,8 @@ var EventEmitter = require('events').EventEmitter
         , joinServer = Yggdrasil.joinServer
         , states = protocol.states
         , debug = protocol.debug
-        ;
+  , pki = require('node-forge').pki
+  , rsa = pki.rsa
 
 module.exports = {
   createClient: createClient,
@@ -39,7 +39,9 @@ function createServer(options) {
   var onlineMode = options['online-mode'] == null ? true : options['online-mode'];
   var encryptionEnabled = options.encryption == null ? true : options.encryption;
 
-  var serverKey = ursa.generatePrivateKey(1024);
+  var serverKeys = rsa.generateKeyPair(1024);
+  var privateKey = serverKeys.privateKey;
+  var publicKey = serverKeys.publicKey;
 
   var server = new Server(options);
   server.motd = options.motd || "A Minecraft server";
@@ -125,7 +127,7 @@ function createServer(options) {
       if (encryptionEnabled || needToVerify) {
         var serverId = crypto.randomBytes(4).toString('hex');
         client.verifyToken = crypto.randomBytes(4);
-        var publicKeyStrArr = serverKey.toPublicPem("utf8").split("\n");
+        var publicKeyStrArr = pki.publicKeyToPem(publicKey).split("\n");
         var publicKeyStr = "";
         for (var i = 1; i < publicKeyStrArr.length - 2; i++) {
           publicKeyStr += publicKeyStrArr[i]
@@ -153,12 +155,17 @@ function createServer(options) {
     }
 
     function onEncryptionKeyResponse(packet) {
-      var verifyToken = serverKey.decrypt(packet.verifyToken, undefined, undefined, ursa.RSA_PKCS1_PADDING);
-      if (!bufferEqual(client.verifyToken, verifyToken)) {
+      var verifyTokenStr = privateKey.decrypt(packet.verifyToken);
+      var verifyToken = new Buffer(verifyTokenStr);
+
+      if (! bufferEqual(client.verifyToken, verifyToken)) {
         client.end('DidNotEncryptVerifyTokenProperly');
         return;
       }
-      var sharedSecret = serverKey.decrypt(packet.sharedSecret, undefined, undefined, ursa.RSA_PKCS1_PADDING);
+
+      var sharedSecretStr = privateKey.decrypt(packet.sharedSecret);
+      var sharedSecret = new Buffer(sharedSecretStr);
+
       client.cipher = crypto.createCipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
       client.decipher = crypto.createDecipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
       hash.update(sharedSecret);
@@ -304,9 +311,9 @@ function createClient(options) {
       }
 
       function sendEncryptionKeyResponse() {
-        var pubKey = mcPubKeyToURsa(packet.publicKey);
-        var encryptedSharedSecretBuffer = pubKey.encrypt(sharedSecret, undefined, undefined, ursa.RSA_PKCS1_PADDING);
-        var encryptedVerifyTokenBuffer = pubKey.encrypt(packet.verifyToken, undefined, undefined, ursa.RSA_PKCS1_PADDING);
+        var pubKey = mcPubKeyToRsa(packet.publicKey);
+        var encryptedSharedSecretBuffer = pubKey.encrypt(sharedSecret);
+        var encryptedVerifyTokenBuffer = pubKey.encrypt(packet.verifyToken);
         client.cipher = crypto.createCipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
         client.decipher = crypto.createDecipheriv('aes-128-cfb8', sharedSecret, sharedSecret);
         client.write(0x01, {
@@ -327,7 +334,7 @@ function createClient(options) {
 
 
 
-function mcPubKeyToURsa(mcPubKeyBuffer) {
+function mcPubKeyToRsa(mcPubKeyBuffer) {
   var pem = "-----BEGIN PUBLIC KEY-----\n";
   var base64PubKey = mcPubKeyBuffer.toString('base64');
   var maxLineLength = 65;
@@ -336,7 +343,7 @@ function mcPubKeyToURsa(mcPubKeyBuffer) {
     base64PubKey = base64PubKey.substring(maxLineLength);
   }
   pem += "-----END PUBLIC KEY-----\n";
-  return ursa.createPublicKey(pem, 'utf8');
+  return pki.publicKeyFromPem(pem);
 }
 
 function mcHexDigest(hash) {
