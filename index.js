@@ -36,7 +36,11 @@ function createServer(options) {
   var host = options.host || '0.0.0.0';
   var kickTimeout = options.kickTimeout || 10 * 1000;
   var checkTimeoutInterval = options.checkTimeoutInterval || 4 * 1000;
-  var onlineMode = options['online-mode'] == null ? true : options['online-mode'];
+  var onlineMode = options.onlineMode != null ?
+    options.onlineMode : 
+    options['online-mode'] != null ? 
+      options['online-mode'] : 
+      true ;
   var encryptionEnabled = options.encryption == null ? true : options.encryption;
 
   var serverKeys = rsa.generateKeyPair(1024);
