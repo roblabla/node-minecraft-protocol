@@ -72,26 +72,7 @@ var values = {
     nbtData: new Buffer(90),
   },
   'ascii': "hello",
-  'byteArray32': new Buffer(10),
   'long': [0, 1],
-  'slotArray': [{
-    id: 41,
-    itemCount: 2,
-    itemDamage: 3,
-    nbtData: new Buffer(0),
-  }],
-  'stringArray': ['hello', 'dude'],
-  'propertyArray': [{ key: 'generic.maxHealth', value: 1.5, elementList: [ { uuid: [ 123, 456, 78, 90 ], amount: 0.5, operation: 1 } ] }],
-  'mapChunkBulk': {
-    skyLightSent: true,
-    compressedChunkData: new Buffer(1234),
-    meta: [{
-      x: 23,
-      z: 64,
-      bitMap: 3,
-      addBitMap: 10,
-    }],
-  },
   'entityMetadata': [
     { key: 17, value: 0,   type: 'int'   },
     { key: 0,  value: 0,   type: 'byte'  },
@@ -106,12 +87,7 @@ var values = {
     velocityY: 2,
     velocityZ: 3,
   },
-  'intArray8': [1, 2, 3, 4],
-  'intVector': {x: 1, y: 2, z: 3},
-  'byteVector': {x: 1, y: 2, z: 3},
-  'byteVectorArray': [{x: 1, y: 2, z: 3}],
-  'statisticArray': {"stuff": 13, "anotherstuff": 6392},
-  'matchArray': ["hallo", "heya"]
+  'buffer': new Buffer([0x2, 0x8, 0x4])
 };
 
 describe("packets", function() {
@@ -160,12 +136,25 @@ describe("packets", function() {
       testPacket(packetId, packetInfo, state, toServer, done);
      };
   }
-  function testPacket(packetId, packetInfo, state, toServer, done) {
-    // empty object uses default values
+  function fillPacket(packetInfo) {
     var packet = {};
     packetInfo.forEach(function(field) {
-      packet[field.name] = values[field.type];
+      if (field.type === "container") {
+        packet[field.name] = fillPacket(field.contents);
+      } else if (field.type === "array") {
+        packet[field.name] = [];
+        for (var i = 0;i < 9; i++) {
+          packet[field.name].push(values[field.arrayType]);
+        }
+      } else {
+        packet[field.name] = values[field.type];
+      }
     });
+    return packet;
+  }
+  function testPacket(packetId, packetInfo, state, toServer, done) {
+    // empty object uses default values
+    var packet = fillPacket(packetInfo);
     if (toServer) {
       serverClient.once([state, packetId], function(receivedPacket) {
         delete receivedPacket.id;
@@ -179,7 +168,11 @@ describe("packets", function() {
         assertPacketsMatch(packet, receivedPacket);
         done();
       });
-      serverClient.write(packetId, packet);
+      try {
+        serverClient.write(packetId, packet);
+      } catch(e) {
+        throw e;
+      }
     }
   }
   function assertPacketsMatch(p1, p2) {
