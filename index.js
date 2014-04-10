@@ -15,6 +15,7 @@ var EventEmitter = require('events').EventEmitter
         , debug = protocol.debug
   , pki = require('node-forge').pki
   , rsa = pki.rsa
+  , asn1 = require('node-forge').asn1;
 
 module.exports = {
   createClient: createClient,
@@ -131,12 +132,7 @@ function createServer(options) {
       if (encryptionEnabled || needToVerify) {
         var serverId = crypto.randomBytes(4).toString('hex');
         client.verifyToken = crypto.randomBytes(4);
-        var publicKeyStrArr = pki.publicKeyToPem(publicKey).split("\n");
-        var publicKeyStr = "";
-        for (var i = 1; i < publicKeyStrArr.length - 2; i++) {
-          publicKeyStr += publicKeyStrArr[i]
-        }
-        client.publicKey = new Buffer(publicKeyStr, 'base64');
+        client.publicKey = new Buffer(asn1.toDer(pki.publicKeyToAsn1(publicKey)).toHex(), 'hex');
         hash = crypto.createHash("sha1");
         hash.update(serverId);
         client.once([states.LOGIN, 0x01], onEncryptionKeyResponse);
